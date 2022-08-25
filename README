@@ -22,3 +22,4 @@ poses in the same trajectory and velocity as the doctor UR. A test script is wri
 UR controller to validate the poses accepted by force mode.
 
 force_control.py is the main script which contains the controller
+
