@@ -1,0 +1,220 @@
+stages:
+  - build
+  - build_pypi
+  - doc
+  - test
+  - deploy
+
+############################################
+#                  Build                   #
+############################################ 
+
+.bash_build:
+  stage: build
+  variables:
+    GIT_SUBMODULE_STRATEGY: recursive
+
+  script:
+    - mkdir build
+    - cd build
+    - cmake -DPYTHON_BINDINGS:BOOL=OFF -DUSE_WERROR:BOOL=ON ..
+    - make
+
+  artifacts:
+    paths:
+      - ./build
+      - ./include
+    expire_in: 2 day
+    when: on_success
+
+build-ubuntu-1804:
+  extends: .bash_build
+  image: registry.gitlab.com/sdurobotics/docker-images/ur_rtde-build:ubuntu-1804
+  tags:
+    - linux
+
+build-ubuntu-2004:
+  extends: .bash_build
+  image: registry.gitlab.com/sdurobotics/docker-images/ur_rtde-build:ubuntu-2004
+  tags:
+    - linux
+
+#build-MAC:
+#  extends: .bash_build
+#  allow_failure: true
+#  tags:
+#    - mac
+
+build-WINDOWS:
+  stage: build
+  variables:
+    GIT_SUBMODULE_STRATEGY: recursive
+  script:
+    - mkdir build
+    - cd build
+    - cmake -DCMAKE_BUILD_TYPE=RelWithDebInfo -G "Visual Studio 16 2019" -A x64 -DWINDOWS_INSTALLER=ON -DBUILD_STATIC=ON -DPYTHON_BINDINGS:BOOL=OFF -DUSE_WERROR:BOOL=OFF ..
+    - msbuild ur_rtde.sln /property:Configuration=RelWithDebInfo
+    - msbuild PACKAGE.vcxproj /property:Configuration=RelWithDebInfo
+  artifacts:
+    paths:
+      - build/ur_rtde-install.exe
+    expire_in: 2 days
+  tags:
+    - sdur-windows
+
+############################################
+#                  Test                    #
+############################################
+
+polyscope-5.11.1.108318:
+  image: cruizba/ubuntu-dind:19.03.11
+  stage: test
+  allow_failure: true
+  services:
+    - docker:dind
+  before_script:
+    - export DEBIAN_FRONTEND=noninteractive
+    - echo 'tzdata tzdata/Areas select Europe' | debconf-set-selections;
+    - echo 'tzdata tzdata/Zones/Europe select Copenhagen' | debconf-set-selections
+    - apt-get update 2>&1 >/dev/null
+    - apt-get install python3-dev python3-pip -y --no-install-recommends
+    - apt-get install build-essential -y --no-install-recommends
+    - apt-get install doctest-dev -y --no-install-recommends
+    - apt-get install cmake -y --no-install-recommends
+    - apt-get install libboost-dev libboost-filesystem-dev libboost-system-dev libboost-thread-dev -y --no-install-recommends
+    - pip3 install anybadge
+    - 'export DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"'
+    - docker network create --subnet=192.168.56.0/24 static_test_net
+    - docker login -u gitlab-ci-token -p $CI_BUILD_TOKEN $CI_REGISTRY
+    - docker run --rm -d --net static_test_net --ip 192.168.56.101 -p 5900:5900 -p 29999:29999 -p 30001-30004:30001-30004 -v "${DIR}/ci/.vol":/ursim/programs --privileged registry.gitlab.com/sdurobotics/docker-images/ur_rtde-build:ursim-5.11.1.108318
+  script:
+    - echo "Preparing tests"
+    - cd test
+    - mkdir build
+    - cd build
+    - cmake ..
+    - make
+    - echo "Waiting for UR simulator to be ready..."
+    - sleep 50
+    - ./tests -s
+  after_script:
+    - >
+      if [ $CI_JOB_STATUS == 'success' ]; then
+        anybadge -l PolyScope-5.11.1 -v passed -c green -f ps-5-11-1-108318.svg
+      else
+        anybadge -l PolyScope-5.11.1 -v failed -c red -f ps-5-11-1-108318.svg
+      fi
+  dependencies:
+    - build-ubuntu-2004
+  needs: ["build-ubuntu-2004"]
+  artifacts:
+    paths:
+      - ./ps-5-11-1-108318.svg
+  tags:
+    - linux
+
+.bash-examples:
+  stage: test
+  variables:
+    GIT_SUBMODULE_STRATEGY: recursive
+  script:
+    - cd examples/cpp
+    - mkdir build 
+    - cd build
+    - cmake ..
+    - make
+  tags:
+    - linux   
+
+examples-ubuntu-1804:
+  extends: .bash-examples
+  image: registry.gitlab.com/sdurobotics/docker-images/ur_rtde-build:ubuntu-1804
+  dependencies:
+    - build-ubuntu-1804
+  needs: ["build-ubuntu-1804"]
+
+examples-ubuntu-2004:
+  extends: .bash-examples
+  image: registry.gitlab.com/sdurobotics/docker-images/ur_rtde-build:ubuntu-2004
+  dependencies:
+    - build-ubuntu-2004
+  needs: ["build-ubuntu-2004"]
+
+#.examples-MAC:
+#  extends: .bash-examples
+#  tags:
+#    - mac
+#  dependencies:
+#    - build-MAC
+#  needs: ["build-MAC"]
+
+.examples-WINDOWS:
+  stage: test
+  variables:
+    GIT_SUBMODULE_STRATEGY: recursive
+  script:
+    - cd examples/cpp
+    - mkdir build 
+    - cd build
+    - cmake .. -G "Visual Studio 16 2019" -A x64
+    - msbuild ur_rtde_examples.sln /property:Configuration=RelWithDebInfo 
+  tags:
+    - sdur-windows
+  dependencies:
+    - build-WINDOWS
+  needs: ["build-WINDOWS"]   
+
+build_pypi:
+  stage: build_pypi
+  image: registry.gitlab.com/sdurobotics/docker-images/ur_rtde-build:manylinux
+  when: manual
+  variables:
+    GIT_SUBMODULE_STRATEGY: recursive
+  script:
+    - ./ci/build-wheels.sh
+  dependencies:
+    - build-ubuntu-1804
+  tags:
+    - linux
+
+sphinx_html:
+  stage: doc
+  image: registry.gitlab.com/sdurobotics/docker-images/ur_rtde-build:ubuntu-1804-doc
+  script:
+    - "[ -d build ] || mkdir build"
+    - cd build
+    - mv ./ur_rtde-install.exe ../doc/_static/ur_rtde-install.exe
+    - cmake -DCODE:BOOL=OFF -DDOC:STRING=html -DWERROR:BOOL=ON ..
+    - make doc
+  dependencies:
+    - build-WINDOWS
+  artifacts:
+    paths:
+      - build/doc/html
+      - doc/_static/ur_rtde-install.exe
+    expire_in: 2 days
+  tags:
+    - linux
+
+pages:
+  stage: deploy
+  variables:
+    GIT_STRATEGY: none
+  only:
+    refs:
+      - master
+  dependencies:
+    - sphinx_html
+  image: registry.gitlab.com/sdurobotics/docker-images/ur_rtde-build:ubuntu-1804-doc
+  script:
+    - mv build/doc/html/_static/googled5bfdc1684e49924.html build/doc/html/googled5bfdc1684e49924.html
+    - mv build/doc/html public
+    
+  artifacts:
+    paths:
+      - public
+  tags:
+    - linux
+
+
+    
