@@ -20,3 +20,5 @@ For the force mode to work, trials and errors are done to select the poses in a 
 are not in singularity. Pronation range of motion of patient UR is achieved with the right
 poses in the same trajectory and velocity as the doctor UR. A test script is written in the
 UR controller to validate the poses accepted by force mode.
+
+force_control.py is the main script which contains the controller
