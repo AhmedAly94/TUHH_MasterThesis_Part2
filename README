@@ -1,4 +1,22 @@
-Real-Time Data Exchange (RTDE) python client + examples
+The robot should move and there should be acceleration if the force exists. In UR robots
+a force mode function enables the robot to performthe force control. For the UR robot
+to be controlled in force mode, poses should be chosen in a way that the robot is not in
+singularity and this was a big challenge when using the force mode as the singularity
+affects the calculations. Therefore the force control would fail due to force singularity.
+For the force mode to be implemented correctly one should define:
 
-rtde - main RTDE library
-examples - Examples showing basic use cases for the RTDE
+• Task frame: The definition of the force frame relative to the base frame.
+• Selection vector: A 6 degrees of 0s and 1s which indicates that the robot will be
+compliant in a certain direction
+• Wrench: The forces/torques the robot will apply to its environment and this is
+received by the implementation of the cartesian impedance controller which
+creates the virtual spring and damper as stated in equation 10 and followed by
+the cartesian controller implementation in this paper [3].
+• Type: the robot interpretation of the force frame
+• Limits: A 6d vector with float values that are interpreted differently for compliant/noncompliant
+axes.
+
+For the force mode to work, trials and errors are done to select the poses in a way they
+are not in singularity. Pronation range of motion of patient UR is achieved with the right
+poses in the same trajectory and velocity as the doctor UR. A test script is written in the
+UR controller to validate the poses accepted by force mode.
