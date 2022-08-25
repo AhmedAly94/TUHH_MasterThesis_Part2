@@ -1,5 +1,5 @@
 The robot should move and there should be acceleration if the force exists. In UR robots
-a force mode function enables the robot to performthe force control. For the UR robot
+a force mode function enables the robot to perform the force control. For the UR robot
 to be controlled in force mode, poses should be chosen in a way that the robot is not in
 singularity and this was a big challenge when using the force mode as the singularity
 affects the calculations. Therefore the force control would fail due to force singularity.
